@@ -22,13 +22,16 @@ class AppMonitoringService : Service() {
     companion object {
         private const val CHANNEL_ID = "SLEEPWELL_MONITORING_CHANNEL"
         private const val NOTIFICATION_ID = 1002
-        private const val CHECK_INTERVAL = 500L // Check every 500ms for better responsiveness
+        private const val CHECK_INTERVAL = 500L // Check every 500ms for responsiveness
+        private const val OVERLAY_COOLDOWN = 1000L // 1 second cooldown to prevent loops
     }
 
     private lateinit var repository: SleepWellRepository
     private var serviceJob: Job? = null
     private var isMonitoring = false
     private var lastCheckedApp: String = ""
+    private var currentlyBlockedApp: String = ""
+    private var overlayShownTime: Long = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -65,22 +68,32 @@ class AppMonitoringService : Service() {
                     }
 
                     val currentApp = getCurrentForegroundApp()
+                    android.util.Log.d("SleepWell", "Current foreground app: $currentApp")
+
                     if (currentApp != null &&
                         lockState.lockedApps.contains(currentApp) &&
                         currentApp != packageName &&  // Don't block our own app
-                        currentApp != "com.example.sleepwell") { // Don't block our overlay activity
+                        !currentApp.startsWith("com.example.sleepwell")) { // Don't block our overlay
 
-                        // Always show overlay for locked apps, regardless of lastCheckedApp
-                        android.util.Log.d("SleepWell", "Blocking app: $currentApp")
-                        showBlockOverlay(currentApp)
-                        lastCheckedApp = currentApp
+                        // Only show overlay if we haven't shown it recently for this app
+                        val currentTime = System.currentTimeMillis()
+                        if (currentlyBlockedApp != currentApp ||
+                            currentTime - overlayShownTime > OVERLAY_COOLDOWN) {
+
+                            android.util.Log.d("SleepWell", "Blocking app: $currentApp")
+                            showBlockOverlay(currentApp)
+                            currentlyBlockedApp = currentApp
+                            overlayShownTime = currentTime
+                        }
                     } else if (currentApp != null) {
-                        // Reset lastCheckedApp when user switches to non-locked app
+                        // Reset tracking when user switches to non-locked app
                         if (!lockState.lockedApps.contains(currentApp)) {
-                            lastCheckedApp = ""
+                            currentlyBlockedApp = ""
+                            overlayShownTime = 0
                         }
                     }
 
+                    // Use minimal delay for maximum responsiveness
                     delay(CHECK_INTERVAL)
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -99,7 +112,7 @@ class AppMonitoringService : Service() {
     private fun getCurrentForegroundApp(): String? {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 1000 * 2 // Last 2 seconds for more immediate detection
+        val startTime = endTime - 1000 * 2 // Last 2 seconds for immediate detection
 
         try {
             val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
@@ -114,22 +127,24 @@ class AppMonitoringService : Service() {
                 }
             }
 
-            val packageName = lastEvent?.packageName
-            android.util.Log.d("SleepWell", "Current foreground app: $packageName")
-            return packageName
+            return lastEvent?.packageName
         } catch (e: Exception) {
             android.util.Log.e("SleepWell", "Failed to get current foreground app", e)
-            e.printStackTrace()
             return null
         }
     }
 
     private fun showBlockOverlay(packageName: String) {
-        val intent = Intent(this, AppBlockOverlayActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("blocked_package", packageName)
+        try {
+            val intent = Intent(this, AppBlockOverlayActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("blocked_package", packageName)
+            }
+            startActivity(intent)
+            android.util.Log.d("SleepWell", "Overlay launched for: $packageName")
+        } catch (e: Exception) {
+            android.util.Log.e("SleepWell", "Failed to show overlay", e)
         }
-        startActivity(intent)
     }
 
     private fun createNotificationChannel() {

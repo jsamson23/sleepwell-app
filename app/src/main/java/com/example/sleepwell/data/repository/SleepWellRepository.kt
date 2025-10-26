@@ -22,34 +22,33 @@ class SleepWellRepository(private val context: Context) {
         val selectedApps = alarmSettings.first().selectedApps
         val excludedPackages = getExcludedSystemPackages()
 
-        // Get all installed packages with activities
-        val installedPackages = packageManager.getInstalledPackages(PackageManager.GET_ACTIVITIES)
+        // Get ALL apps that have launcher activities (this is the most reliable way)
+        val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
 
-        return installedPackages
-            .filter { packageInfo ->
-                val packageName = packageInfo.packageName
+        val launcherApps = packageManager.queryIntentActivities(launcherIntent, 0)
 
-                // Skip our own app and excluded packages
-                if (packageName == context.packageName || excludedPackages.contains(packageName)) {
-                    return@filter false
-                }
-
-                // Check if app has launcher activity (can be opened by user)
-                val hasLauncherActivity = hasLauncherActivity(packageManager, packageName)
-
-                // Include if it has a launcher activity (this covers all user-launchable apps)
-                hasLauncherActivity
-            }
-            .mapNotNull { packageInfo ->
+        return launcherApps
+            .mapNotNull { resolveInfo ->
                 try {
-                    val packageName = packageInfo.packageName
-                    val appName = packageInfo.applicationInfo.loadLabel(packageManager).toString()
-                    val icon = packageInfo.applicationInfo.loadIcon(packageManager)
+                    val packageName = resolveInfo.activityInfo.packageName
 
-                    // Skip apps with empty or system-like names
-                    if (appName.isBlank() || appName.startsWith("com.")) {
+                    // Skip our own app and critical system packages
+                    if (packageName == context.packageName || excludedPackages.contains(packageName)) {
                         return@mapNotNull null
                     }
+
+                    val applicationInfo = packageManager.getApplicationInfo(packageName, 0)
+                    val appName = packageManager.getApplicationLabel(applicationInfo).toString()
+                    val icon = applicationInfo.loadIcon(packageManager)
+
+                    // Skip apps with empty or generic names
+                    if (appName.isBlank() || appName == packageName) {
+                        return@mapNotNull null
+                    }
+
+                    android.util.Log.d("SleepWell", "Found app: $appName ($packageName)")
 
                     AppInfo(
                         packageName = packageName,
@@ -58,38 +57,31 @@ class SleepWellRepository(private val context: Context) {
                         isSelected = selectedApps.contains(packageName)
                     )
                 } catch (e: Exception) {
-                    android.util.Log.w("SleepWell", "Failed to load app info for package", e)
-                    null // Skip apps that can't be loaded
+                    android.util.Log.w("SleepWell", "Failed to load app info", e)
+                    null
                 }
             }
+            .distinctBy { it.packageName } // Remove duplicates
             .sortedBy { it.appName }
     }
 
-    private fun hasLauncherActivity(packageManager: PackageManager, packageName: String): Boolean {
-        val intent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-            setPackage(packageName)
-        }
-        return packageManager.queryIntentActivities(intent, 0).isNotEmpty()
-    }
-
     private fun getExcludedSystemPackages(): Set<String> {
-        // Only exclude critical system packages that shouldn't be blocked
+        // Only exclude the most critical system components that should NEVER be blocked
         return setOf(
-            "com.android.settings",
-            "com.android.systemui",
-            "com.android.launcher",
-            "com.android.launcher3",
-            "com.google.android.apps.nexuslauncher",
-            "com.android.phone",
-            "com.android.contacts",
-            "com.android.dialer",
-            "com.google.android.dialer",
+            "com.android.settings", // System Settings
+            "com.android.systemui", // System UI
+            "com.android.launcher", // Default launcher
+            "com.android.launcher3", // Launcher3
+            "com.google.android.apps.nexuslauncher", // Pixel launcher
             "com.sec.android.app.launcher", // Samsung launcher
+            "com.miui.home", // MIUI launcher
+            "com.huawei.android.launcher", // Huawei launcher
+            "com.android.phone", // Phone app
+            "com.android.dialer", // Dialer
+            "com.google.android.dialer", // Google Dialer
             "com.samsung.android.incallui", // Samsung phone
             "com.android.emergency", // Emergency dialer
-            "android", // Core Android system
-            context.packageName // Our own app
+            "android" // Core Android system
         )
     }
 

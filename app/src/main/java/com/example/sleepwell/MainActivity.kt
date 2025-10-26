@@ -18,7 +18,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             SleepWellTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    SleepWellNavigation()
+                    SleepWellNavigation(
+                        modifier = Modifier.padding(innerPadding)
+                    )
                 }
             }
         }

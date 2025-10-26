@@ -1,6 +1,7 @@
 package com.example.sleepwell.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -21,6 +22,7 @@ sealed class Screen(val route: String) {
 
 @Composable
 fun SleepWellNavigation(
+    modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController()
 ) {
     val context = LocalContext.current
@@ -32,7 +34,8 @@ fun SleepWellNavigation(
 
     NavHost(
         navController = navController,
-        startDestination = startDestination
+        startDestination = startDestination,
+        modifier = modifier
     ) {
         composable(Screen.Dashboard.route) {
             DashboardScreen(

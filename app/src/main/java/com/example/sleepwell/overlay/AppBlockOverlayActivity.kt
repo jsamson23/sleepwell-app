@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,25 +41,66 @@ class AppBlockOverlayActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        android.util.Log.d("SleepWell", "Overlay onCreate called")
+
+        // Basic window setup to ensure overlay appears on top
+        window.addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+        )
+
         repository = SleepWellRepository(this)
 
         val blockedPackage = intent.getStringExtra("blocked_package") ?: ""
+        android.util.Log.d("SleepWell", "Overlay blocking package: $blockedPackage")
+
+        // Check lock state immediately on creation
+        lifecycleScope.launch {
+            try {
+                val lockState = repository.appLockState.first()
+                android.util.Log.d("SleepWell", "Overlay onCreate - Lock state: active=${lockState.isActive}, currentTime=${System.currentTimeMillis()}, endTime=${lockState.endTime}, lockedApps=${lockState.lockedApps}")
+            } catch (e: Exception) {
+                android.util.Log.e("SleepWell", "Error reading lock state in onCreate", e)
+            }
+        }
 
         setContent {
             SleepWellTheme {
                 AppBlockOverlay(
                     blockedPackage = blockedPackage,
                     repository = repository,
-                    onTimeExpired = { finish() }
+                    onTimeExpired = {
+                        android.util.Log.d("SleepWell", "Overlay onTimeExpired callback triggered - finishing")
+                        finish()
+                    }
                 )
             }
         }
 
-        // Start checking if lockout period has ended
-        startPeriodicCheck()
+        // Start periodic checks after a delay to let everything settle
+        handler.postDelayed({
+            android.util.Log.d("SleepWell", "Starting periodic checks after delay")
+            startPeriodicCheck()
+        }, 3000) // Wait 3 seconds before starting periodic checks
+    }
+
+    override fun onResume() {
+        super.onResume()
+        android.util.Log.d("SleepWell", "Overlay onResume called")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        android.util.Log.d("SleepWell", "Overlay onPause called")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        android.util.Log.d("SleepWell", "Overlay onStop called")
     }
 
     override fun onDestroy() {
+        android.util.Log.d("SleepWell", "Overlay onDestroy called")
         super.onDestroy()
         stopPeriodicCheck()
     }
@@ -67,23 +109,13 @@ class AppBlockOverlayActivity : ComponentActivity() {
     override fun onBackPressed() {
         // Prevent back button from closing the overlay
         // Do nothing - this is intentional to prevent bypassing
+        android.util.Log.d("SleepWell", "Overlay onBackPressed - ignoring")
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // When user tries to leave (home button, recent apps), bring overlay back to front
-        moveTaskToFront()
-    }
-
-    private fun moveTaskToFront() {
-        val blockedPackage = intent.getStringExtra("blocked_package") ?: ""
-        val newIntent = Intent(this, AppBlockOverlayActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                   Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                   Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("blocked_package", blockedPackage)
-        }
-        startActivity(newIntent)
+        android.util.Log.d("SleepWell", "Overlay onUserLeaveHint called")
+        // Allow user to leave to home screen - this is expected behavior
     }
 
     private fun startPeriodicCheck() {
@@ -92,16 +124,20 @@ class AppBlockOverlayActivity : ComponentActivity() {
                 lifecycleScope.launch {
                     try {
                         val lockState = repository.appLockState.first()
+                        android.util.Log.d("SleepWell", "Overlay checking lock state: active=${lockState.isActive}, currentTime=${System.currentTimeMillis()}, endTime=${lockState.endTime}")
+
                         if (!lockState.isActive || System.currentTimeMillis() >= lockState.endTime) {
+                            android.util.Log.d("SleepWell", "Overlay finishing due to expired lock")
                             finish()
                             return@launch
                         }
                     } catch (e: Exception) {
+                        android.util.Log.e("SleepWell", "Error in overlay periodic check", e)
                         e.printStackTrace()
                     }
                 }
 
-                handler.postDelayed(this, 1000) // Check every second
+                handler.postDelayed(this, 5000) // Check every 5 seconds (less aggressive)
             }
         }
         handler.post(checkRunnable!!)
@@ -145,30 +181,46 @@ fun AppBlockOverlay(
         }
     }
 
-    // Update time remaining
-    LaunchedEffect(Unit) {
-        while (true) {
+    // Track lock state and update time remaining
+    val lockState by repository.appLockState.collectAsState(initial = null)
+
+    // Update time remaining every second - only when lock state is loaded
+    LaunchedEffect(lockState) {
+        val currentLockState = lockState
+        if (currentLockState == null) return@LaunchedEffect // Wait for real lock state to load
+
+        android.util.Log.d("SleepWell", "AppBlockOverlay LaunchedEffect - lockState loaded: active=${currentLockState.isActive}, endTime=${currentLockState.endTime}")
+
+        if (!currentLockState.isActive) {
+            android.util.Log.d("SleepWell", "AppBlockOverlay - lock not active, calling onTimeExpired")
+            onTimeExpired()
+            return@LaunchedEffect
+        }
+
+        while (currentLockState.isActive) {
             try {
-                val lockState = repository.appLockState.first()
-                if (!lockState.isActive || System.currentTimeMillis() >= lockState.endTime) {
+                val currentTime = System.currentTimeMillis()
+                if (currentTime >= currentLockState.endTime) {
+                    android.util.Log.d("SleepWell", "AppBlockOverlay - time expired, calling onTimeExpired")
                     onTimeExpired()
                     break
                 }
 
-                val remainingMs = lockState.endTime - System.currentTimeMillis()
-                val remainingMinutes = (remainingMs / (1000 * 60)).toInt()
-                val hours = remainingMinutes / 60
-                val minutes = remainingMinutes % 60
+                val remainingMs = currentLockState.endTime - currentTime
+                val remainingSeconds = (remainingMs / 1000).toInt()
+                val hours = remainingSeconds / 3600
+                val minutes = (remainingSeconds % 3600) / 60
+                val seconds = remainingSeconds % 60
 
-                timeRemaining = if (hours > 0) {
-                    "${hours}h ${minutes}m"
-                } else {
-                    "${minutes}m"
+                timeRemaining = when {
+                    hours > 0 -> "${hours}h ${minutes}m"
+                    minutes > 0 -> "${minutes}m ${seconds}s"
+                    else -> "${seconds}s"
                 }
 
                 kotlinx.coroutines.delay(1000)
             } catch (e: Exception) {
-                e.printStackTrace()
+                android.util.Log.e("SleepWell", "Error in AppBlockOverlay time update", e)
                 break
             }
         }

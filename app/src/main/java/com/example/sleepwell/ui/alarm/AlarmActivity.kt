@@ -216,28 +216,30 @@ fun AlarmScreen(
                     OutlinedButton(
                         onClick = onSnooze,
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
                     ) {
                         Text(
                             text = "Snooze",
-                            modifier = Modifier.padding(8.dp)
+                            maxLines = 1
                         )
                     }
 
                     Button(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.AlarmOff,
                             contentDescription = null,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "Dismiss",
-                            modifier = Modifier.padding(8.dp)
+                            maxLines = 1
                         )
                     }
                 }

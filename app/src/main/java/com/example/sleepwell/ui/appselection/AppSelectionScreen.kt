@@ -80,9 +80,13 @@ fun AppSelectionScreen(
                     onClick = {
                         viewModel.saveChanges()
                         onNavigateBack()
-                    }
+                    },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    Text("Save")
+                    Text(
+                        text = "Save",
+                        maxLines = 1
+                    )
                 }
             } else {
                 Spacer(modifier = Modifier.width(48.dp))
@@ -157,18 +161,26 @@ fun AppSelectionScreen(
                     )
                     Row {
                         TextButton(
-                            onClick = { viewModel.discardChanges() }
+                            onClick = { viewModel.discardChanges() },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                         ) {
-                            Text("Discard")
+                            Text(
+                                text = "Discard",
+                                maxLines = 1
+                            )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = {
                                 viewModel.saveChanges()
                                 onNavigateBack()
-                            }
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                         ) {
-                            Text("Save")
+                            Text(
+                                text = "Save",
+                                maxLines = 1
+                            )
                         }
                     }
                 }

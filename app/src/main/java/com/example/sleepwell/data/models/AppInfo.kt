@@ -1,6 +1,7 @@
 package com.example.sleepwell.data.models
 
 import android.graphics.drawable.Drawable
+import com.example.sleepwell.utils.BypassMethod
 
 data class AppInfo(
     val packageName: String,
@@ -14,7 +15,8 @@ data class AlarmSettings(
     val alarmHour: Int = 7,
     val alarmMinute: Int = 0,
     val lockoutDurationMinutes: Int = 30,
-    val selectedApps: Set<String> = emptySet()
+    val selectedApps: Set<String> = emptySet(),
+    val bypassMethod: BypassMethod = BypassMethod.NONE
 )
 
 data class AppLockState(

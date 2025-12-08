@@ -12,8 +12,10 @@ import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
@@ -23,11 +25,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import com.example.sleepwell.data.models.AlarmSettings
+import com.example.sleepwell.data.models.AppLockState
 import com.example.sleepwell.data.repository.SleepWellRepository
 import com.example.sleepwell.ui.theme.SleepWellTheme
+import com.example.sleepwell.utils.BypassManager
+import com.example.sleepwell.utils.BypassMethod
+import com.example.sleepwell.utils.MathChallenge
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -72,6 +81,21 @@ class AppBlockOverlayActivity : ComponentActivity() {
                     onTimeExpired = {
                         android.util.Log.d("SleepWell", "Overlay onTimeExpired callback triggered - finishing")
                         finish()
+                    },
+                    onBypassSuccess = {
+                        android.util.Log.d("SleepWell", "Bypass successful - unlocking apps")
+                        // Clear the lock state so monitoring service doesn't re-launch overlay
+                        lifecycleScope.launch {
+                            repository.updateAppLockState(
+                                AppLockState(
+                                    isActive = false,
+                                    startTime = 0L,
+                                    endTime = 0L,
+                                    lockedApps = emptySet()
+                                )
+                            )
+                            finish()
+                        }
                     }
                 )
             }
@@ -153,7 +177,8 @@ class AppBlockOverlayActivity : ComponentActivity() {
 fun AppBlockOverlay(
     blockedPackage: String,
     repository: SleepWellRepository,
-    onTimeExpired: () -> Unit
+    onTimeExpired: () -> Unit,
+    onBypassSuccess: () -> Unit
 ) {
     val context = LocalContext.current
     var appName by remember { mutableStateOf("") }
@@ -161,7 +186,11 @@ fun AppBlockOverlay(
     var unlockTime by remember { mutableStateOf("") }
     var timeRemaining by remember { mutableStateOf("") }
 
-    // Load app info
+    // Bypass state
+    var showBypassDialog by remember { mutableStateOf(false) }
+    var bypassMethod by remember { mutableStateOf(BypassMethod.NONE) }
+
+    // Load app info and bypass settings
     LaunchedEffect(blockedPackage) {
         try {
             val packageManager = context.packageManager
@@ -175,6 +204,10 @@ fun AppBlockOverlay(
             }
             val format = SimpleDateFormat("h:mm a 'on' MMM dd", Locale.getDefault())
             unlockTime = format.format(calendar.time)
+
+            // Load bypass method
+            val alarmSettings = repository.alarmSettings.first()
+            bypassMethod = alarmSettings.bypassMethod
         } catch (e: Exception) {
             appName = "Unknown App"
             e.printStackTrace()
@@ -346,7 +379,248 @@ fun AppBlockOverlay(
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                // Bypass button (only show if bypass method is not NONE)
+                if (bypassMethod != BypassMethod.NONE) {
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    OutlinedButton(
+                        onClick = { showBypassDialog = true },
+                        modifier = Modifier.fillMaxWidth(0.7f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LockOpen,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Unlock Early")
+                    }
+
+                    Text(
+                        text = when (bypassMethod) {
+                            BypassMethod.MATH -> "Solve a math problem to unlock"
+                            BypassMethod.STRING_MATCH -> "Type the code to unlock"
+                            else -> ""
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
             }
         }
     }
+
+    // Bypass dialog
+    if (showBypassDialog) {
+        when (bypassMethod) {
+            BypassMethod.MATH -> {
+                MathChallengeDialog(
+                    onSuccess = {
+                        showBypassDialog = false
+                        onBypassSuccess()
+                    },
+                    onDismiss = { showBypassDialog = false }
+                )
+            }
+            BypassMethod.STRING_MATCH -> {
+                StringMatchDialog(
+                    onSuccess = {
+                        showBypassDialog = false
+                        onBypassSuccess()
+                    },
+                    onDismiss = { showBypassDialog = false }
+                )
+            }
+            else -> {
+                // Should not happen
+                showBypassDialog = false
+            }
+        }
+    }
+}
+
+@Composable
+private fun MathChallengeDialog(
+    onSuccess: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var currentChallenge by remember { mutableStateOf(BypassManager.generateMathChallenge()) }
+    var userAnswer by remember { mutableStateOf("") }
+    var showError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Math Challenge",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Solve this problem to unlock:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Math problem
+                Text(
+                    text = currentChallenge.question,
+                    style = MaterialTheme.typography.displayMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Answer input
+                OutlinedTextField(
+                    value = userAnswer,
+                    onValueChange = {
+                        userAnswer = it
+                        showError = false
+                    },
+                    label = { Text("Your Answer") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    isError = showError,
+                    supportingText = if (showError) {
+                        { Text("Incorrect! Try the new problem.") }
+                    } else null,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (BypassManager.validateMathAnswer(currentChallenge, userAnswer)) {
+                        onSuccess()
+                    } else {
+                        showError = true
+                        userAnswer = ""
+                        // Generate new challenge on failure
+                        currentChallenge = BypassManager.generateMathChallenge()
+                    }
+                }
+            ) {
+                Text("Submit")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun StringMatchDialog(
+    onSuccess: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val targetString = remember { BypassManager.generateRandomString(8) }
+    var userInput by remember { mutableStateOf("") }
+    var showError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "String Match Challenge",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Type this code exactly to unlock:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Target string display
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = targetString,
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        textAlign = TextAlign.Center,
+                        letterSpacing = 4.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "Case-sensitive • No spaces",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // User input
+                OutlinedTextField(
+                    value = userInput,
+                    onValueChange = {
+                        userInput = it
+                        showError = false
+                    },
+                    label = { Text("Type the code") },
+                    singleLine = true,
+                    isError = showError,
+                    supportingText = if (showError) {
+                        { Text("Incorrect! Please try again.") }
+                    } else null,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (BypassManager.validateStringMatch(targetString, userInput)) {
+                        onSuccess()
+                    } else {
+                        showError = true
+                        userInput = ""
+                    }
+                }
+            ) {
+                Text("Submit")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

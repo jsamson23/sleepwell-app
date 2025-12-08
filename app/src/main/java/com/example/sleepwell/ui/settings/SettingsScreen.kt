@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,6 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.sleepwell.ui.components.DurationPickerDialog
+import com.example.sleepwell.ui.components.TimePickerDialog
+import com.example.sleepwell.utils.BypassManager
+import com.example.sleepwell.utils.BypassMethod
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -98,10 +103,20 @@ fun SettingsScreen(
                     onClick = onNavigateToAppSelection
                 )
             }
+
+            // Bypass Method Setting
+            item {
+                SettingCard(
+                    title = "Bypass Method",
+                    subtitle = BypassManager.getBypassMethodDisplayName(uiState.alarmSettings.bypassMethod),
+                    icon = Icons.Default.Lock,
+                    onClick = { viewModel.showBypassMethodPicker() }
+                )
+            }
         }
     }
 
-    // Time Picker Dialog
+    // Time Picker Dialog (using new wheel picker)
     if (uiState.showTimePicker) {
         TimePickerDialog(
             initialHour = uiState.alarmSettings.alarmHour,
@@ -114,15 +129,27 @@ fun SettingsScreen(
         )
     }
 
-    // Duration Picker Dialog
+    // Duration Picker Dialog (using new wheel picker)
     if (uiState.showDurationPicker) {
         DurationPickerDialog(
-            initialDuration = uiState.alarmSettings.lockoutDurationMinutes,
+            initialDurationMinutes = uiState.alarmSettings.lockoutDurationMinutes,
             onDurationSelected = { duration ->
                 viewModel.updateLockoutDuration(duration)
                 viewModel.hideDurationPicker()
             },
             onDismiss = { viewModel.hideDurationPicker() }
+        )
+    }
+
+    // Bypass Method Picker Dialog
+    if (uiState.showBypassMethodPicker) {
+        BypassMethodPickerDialog(
+            currentMethod = uiState.alarmSettings.bypassMethod,
+            onMethodSelected = { method ->
+                viewModel.updateBypassMethod(method)
+                viewModel.hideBypassMethodPicker()
+            },
+            onDismiss = { viewModel.hideBypassMethodPicker() }
         )
     }
 }
@@ -177,76 +204,66 @@ private fun SettingCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimePickerDialog(
-    initialHour: Int,
-    initialMinute: Int,
-    onTimeSelected: (Int, Int) -> Unit,
+private fun BypassMethodPickerDialog(
+    currentMethod: BypassMethod,
+    onMethodSelected: (BypassMethod) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val timePickerState = rememberTimePickerState(
-        initialHour = initialHour,
-        initialMinute = initialMinute
+    val methods = listOf(
+        BypassMethod.NONE,
+        BypassMethod.MATH,
+        BypassMethod.STRING_MATCH
     )
+    var selectedMethod by remember { mutableStateOf(currentMethod) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Select Alarm Time") },
-        text = {
-            TimePicker(state = timePickerState)
+        title = {
+            Text(
+                text = "Select Bypass Method",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
         },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onTimeSelected(timePickerState.hour, timePickerState.minute)
-                }
-            ) {
-                Text("OK")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-@Composable
-private fun DurationPickerDialog(
-    initialDuration: Int,
-    onDurationSelected: (Int) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val durations = listOf(15, 30, 45, 60, 90, 120, 180, 240)
-    var selectedDuration by remember { mutableStateOf(initialDuration) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Select Lockout Duration") },
         text = {
             LazyColumn {
-                items(durations.size) { index ->
-                    val duration = durations[index]
-                    Row(
+                items(methods.size) { index ->
+                    val method = methods[index]
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { selectedDuration = duration }
-                            .padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .clickable { selectedMethod = method }
+                            .padding(vertical = 12.dp, horizontal = 8.dp)
                     ) {
-                        RadioButton(
-                            selected = selectedDuration == duration,
-                            onClick = { selectedDuration = duration }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (duration < 60) {
-                                "$duration minutes"
-                            } else {
-                                "${duration / 60} hour${if (duration / 60 > 1) "s" else ""}"
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectedMethod == method,
+                                onClick = { selectedMethod = method }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = BypassManager.getBypassMethodDisplayName(method),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = BypassManager.getBypassMethodDescription(method),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
+                        }
+                    }
+                    if (index < methods.size - 1) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant
                         )
                     }
                 }
@@ -254,7 +271,7 @@ private fun DurationPickerDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onDurationSelected(selectedDuration) }
+                onClick = { onMethodSelected(selectedMethod) }
             ) {
                 Text("OK")
             }

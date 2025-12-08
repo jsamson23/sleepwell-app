@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.sleepwell.data.models.AlarmSettings
 import com.example.sleepwell.data.models.AppLockState
+import com.example.sleepwell.utils.BypassMethod
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -19,6 +20,7 @@ class PreferencesManager(private val context: Context) {
         private val ALARM_MINUTE = intPreferencesKey("alarm_minute")
         private val LOCKOUT_DURATION = intPreferencesKey("lockout_duration")
         private val SELECTED_APPS = stringSetPreferencesKey("selected_apps")
+        private val BYPASS_METHOD = stringPreferencesKey("bypass_method")
 
         private val LOCK_ACTIVE = booleanPreferencesKey("lock_active")
         private val LOCK_START_TIME = longPreferencesKey("lock_start_time")
@@ -32,7 +34,12 @@ class PreferencesManager(private val context: Context) {
             alarmHour = preferences[ALARM_HOUR] ?: 7,
             alarmMinute = preferences[ALARM_MINUTE] ?: 0,
             lockoutDurationMinutes = preferences[LOCKOUT_DURATION] ?: 30,
-            selectedApps = preferences[SELECTED_APPS] ?: emptySet()
+            selectedApps = preferences[SELECTED_APPS] ?: emptySet(),
+            bypassMethod = try {
+                BypassMethod.valueOf(preferences[BYPASS_METHOD] ?: "NONE")
+            } catch (e: Exception) {
+                BypassMethod.NONE
+            }
         )
     }
 
@@ -52,6 +59,7 @@ class PreferencesManager(private val context: Context) {
             preferences[ALARM_MINUTE] = settings.alarmMinute
             preferences[LOCKOUT_DURATION] = settings.lockoutDurationMinutes
             preferences[SELECTED_APPS] = settings.selectedApps
+            preferences[BYPASS_METHOD] = settings.bypassMethod.name
         }
     }
 

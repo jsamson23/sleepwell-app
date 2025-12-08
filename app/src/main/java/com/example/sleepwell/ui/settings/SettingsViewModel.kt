@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.sleepwell.data.models.AlarmSettings
 import com.example.sleepwell.data.repository.SleepWellRepository
 import com.example.sleepwell.service.AlarmService
+import com.example.sleepwell.utils.BypassMethod
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,7 +16,8 @@ data class SettingsUiState(
     val alarmSettings: AlarmSettings = AlarmSettings(),
     val isLoading: Boolean = true,
     val showTimePicker: Boolean = false,
-    val showDurationPicker: Boolean = false
+    val showDurationPicker: Boolean = false,
+    val showBypassMethodPicker: Boolean = false
 )
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -79,6 +81,24 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             if (updatedSettings.isEnabled) {
                 AlarmService.scheduleAlarm(getApplication(), updatedSettings)
             }
+        }
+    }
+
+    fun showBypassMethodPicker() {
+        _uiState.value = _uiState.value.copy(showBypassMethodPicker = true)
+    }
+
+    fun hideBypassMethodPicker() {
+        _uiState.value = _uiState.value.copy(showBypassMethodPicker = false)
+    }
+
+    fun updateBypassMethod(method: BypassMethod) {
+        viewModelScope.launch {
+            val currentSettings = _uiState.value.alarmSettings
+            val updatedSettings = currentSettings.copy(
+                bypassMethod = method
+            )
+            repository.updateAlarmSettings(updatedSettings)
         }
     }
 }
